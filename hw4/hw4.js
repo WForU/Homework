@@ -1,67 +1,87 @@
 import { Application, Router, send } from "https://deno.land/x/oak/mod.ts";
+import * as render from './render.js';
+import { DB } from "https://deno.land/x/sqlite/mod.ts";
 
-const accounts = new Map();
-
-accounts.set("???", {
-  name: "???",
-  password: "1010101010",
-});
+const db = new DB("blog.db");
+db.query("Create New Table (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, tel TEXT)");
 
 const router = new Router();
 
 router
-  .get("/", (ctx) => {
-    ctx.response.redirect('http://127.0.0.1:8000/public/');
-  })
-  .get("/account", (ctx) => {
-    ctx.response.body = Array.from(accounts.values());
-  })
-  .post("/account/register", async (ctx) => {
-    const body = ctx.request.body();
-    if (body.type === "form") {
-      const pairs = await body.value;
-      const params = Object.fromEntries(pairs);
-      const { name, password } = params;
-
-      if (accounts.get(name)) {
-        ctx.response.type = 'text/html';
-        ctx.response.body = `<p>Username already exists</p><p><a href="http://127.0.0.1:8000/public/register.html">Retry registration</a></p>`;
-      } else {
-        accounts.set(name, { name, password });
-        ctx.response.type = 'text/html';
-        ctx.response.body = `<p>Registration (${name}, ${password}) successful</p><p><a href="http://127.0.0.1:8000/public/login.html">Login</a></p>`;
-      }
-    }
-  })
-  .get("/public/(.*)", async (ctx) => {
-    const wpath = ctx.params[0];
-    await send(ctx, wpath, {
-      root: Deno.cwd() + "/public/",
-      index: "index.html",
-    });
-  })
-  .post("/account/login", async (ctx) => {
-    const body = ctx.request.body();
-    if (body.type === "form") {
-      const pairs = await body.value;
-      const params = Object.fromEntries(pairs);
-      const { name, password } = params;
-
-      if (accounts.get(name) && password === accounts.get(name).password) {
-        ctx.response.type = 'text/html';
-        ctx.response.body = `<p>Successfully signed in</p><p><a href="">Entering System</a></p>`;
-      } else {
-        ctx.response.type = 'text/html';
-        ctx.response.body = `<p>Failed to login, please check your ID or password!</p><p><a href="http://127.0.0.1:8000/public/login.html">Log in again</a></p>`;
-      }
-    }
-  });
+  .get('/', list)
+  .get('/post/new', add)
+  .get('/post/:id', show)
+  .post('/post', create);
 
 const app = new Application();
-
 app.use(router.routes());
 app.use(router.allowedMethods());
 
-console.log('Server started at: http://127.0.0.1:8000');
+app.use(async (ctx, next) => {
+  console.log('path=', ctx.request.url.pathname);
+  if (ctx.request.url.pathname.startsWith("/public/")) {
+    console.log('pass:', ctx.request.url.pathname);
+    await send(ctx, ctx.request.url.pathname, {
+      root: Deno.cwd(),
+      index: "index.html",
+    });
+  } else {
+    await next();
+  }
+});
 
-await app.listen({ port: 8000 });
+function query(sql, params = []) {
+  const list = [];
+  for (const [id, name, tel] of db.query(sql, params)) {
+    list.push({ id, name, tel });
+  }
+  return list;
+}
+
+async function list(ctx) {
+  try {
+    const posts = query("SELECT id, name, tel FROM posts");
+    console.log('list:posts=', posts);
+    ctx.response.body = await render.list(posts);
+  } catch (error) {
+    ctx.throw(500, 'Internal Server Error');
+  }
+}
+
+async function add(ctx) {
+  ctx.response.body = await render.newPost();
+}
+
+async function show(ctx) {
+  try {
+    const pid = ctx.params.id;
+    const posts = query("SELECT id, name, tel FROM posts WHERE id=?", [pid]);
+    const post = posts[0];
+    console.log('show:post=', post);
+    if (!post) {
+      ctx.throw(404, 'Invalid post id');
+    }
+    ctx.response.body = await render.show(post);
+  } catch (error) {
+    ctx.throw(500, 'Internal Server Error');
+  }
+}
+
+async function create(ctx) {
+  const body = ctx.request.body();
+  if (body.type === "form") {
+    try {
+      const pairs = await body.value;
+      const post = Object.fromEntries(pairs);
+      console.log('create:post=', post);
+      db.query("INSERT INTO posts (name, tel) VALUES (?, ?)", [post.name, post.tel]);
+      ctx.response.redirect('/');
+    } catch (error) {
+      ctx.throw(500, 'Internal Server Error');
+    }
+  }
+}
+
+const port = parseInt(Deno.args[0]) || 8001;
+console.log(`Server run at http://127.0.0.1:${port}`);
+await app.listen({ port });
