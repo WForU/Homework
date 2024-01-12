@@ -85,10 +85,10 @@ export function layout(title, content) {
   }
   
   export function newPerson() {
-    return layout('New preson', `
+    return layout('New person', `
     <h1>New</h1>
-    <p>Create a Preson</p>
-    <form action="/preson" method="post">
+    <p>Create a Person</p>
+    <form action="/person" method="post">
       <p><input type="text" placeholder="name" name="name"></p>
       <p><textarea placeholder="phone number" name="phone"></textarea></p>
       <p><input type="submit" value="Create"></p>
