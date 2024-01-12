@@ -1,80 +1,14 @@
-<!DOCTYPE html>
-<html lang="en">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<form action="/people/login" method="post">   
     <link rel="stylesheet" href="style.css">
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f8f9fa;
-            margin: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-        }
-
-        form {
-            background-color: #fff;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-            padding: 20px;
-            width: 300px;
-        }
-
-        h1 {
-            color: #333;
-            text-align: center;
-        }
-
-        label {
-            display: block;
-            margin-top: 10px;
-        }
-
-        input {
-            width: 100%;
-            padding: 10px;
-            margin-top: 5px;
-            margin-bottom: 10px;
-            box-sizing: border-box;
-        }
-
-        .button {
-            background-color: #007BFF;
-            color: #fff;
-            border: none;
-            padding: 10px;
-            cursor: pointer;
-            width: 100%;
-            border-radius: 5px;
-        }
-
-        .button:hover {
-            background-color: #0056b3;
-        }
-
-        .shadowbox-1 {
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-            padding: 20px;
-            border-radius: 8px;
-        }
-    </style>
-    <title>Sign In</title>
-</head>
-
-<body>
-    <form action="/people/login" method="post" class="shadowbox-1">
-        <h1>Sign In</h1>
-        <label for="name">Name</label>
-        <input class="input" type="text" name="name" id="name" placeholder="Name" required>
-        <label for="password">Password</label>
-        <input class="input" type="password" name="password" id="password" placeholder="Password" required>
-        <br>
+    <h1> Sign In </h1>
+    <div class="shadowbox-1">
+        <label>Name</label>
+        <br />
+        <input class="input" type="text" name="name" placeholder="name"/>
+        <label>Password</label>
+        <br />
+        <input class="input" type="password" name="password" placeholder="password"/>
+        <br />
         <input class="button" type="submit" value="Sign In">
-    </form>
-</body>
-
-</html>
+    </div>
+</form> 
