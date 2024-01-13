@@ -1,205 +1,211 @@
-import { Application, Router, send } from "https://deno.land/x/oak/mod.ts";
-import * as render from './render.js';
+import { Application, Router } from "https://deno.land/x/oak/mod.ts";
 import { DB } from "https://deno.land/x/sqlite/mod.ts";
+import { Session } from "https://deno.land/x/oak_sessions/mod.ts";
+import * as render from './render.js';
 
 const db = new DB("blog.db");
-db.query("CREATE posts (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, tel TEXT)");
-db.query("CREATE contacts (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, tel TEXT)");
-db.query("CREATE users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, password TEXT)");
-
-const users = new Map();
+db.query("CREATE TABLE IF NOT EXISTS posts (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, title TEXT, body TEXT)");
+db.query("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT, password TEXT, email TEXT)");
 
 const router = new Router();
 
 router
   .get('/', list)
-  .get('/post/new', checkAuth, add)
-  .get('/post/:id', show)
-  .post('/post', checkAuth, create)
-  .get('/contact/new', checkAuth, addContactForm)
-  .post('/contact', checkAuth, createContact)
-  .get('/contact/:id/delete', checkAuth, deleteContact)
-  .get('/contact/search', checkAuth, searchContact)
-  .get('/signup', signUpForm)
-  .post('/signup', signUp)
-  .get('/signin', signInForm)
-  .post('/signin', signIn);
+  .get('/signup', signupUi)
+  .post('/signup', signup)
+  .get('/login', loginUi)
+  .post('/login', login)
+  .get('/logout', logout)
+  .get('/contact/search', search)
+  .get('/contact/new', add)
+  .get('/contact/:id', show)
+  .post('/contact', create)
+  .post('/search', find)
+  .get('/contact/delete/:id', deleteConfirmation)
+  .post('/contact/delete/:id', deleteContact);
 
 const app = new Application();
+app.use(Session.initMiddleware());
 app.use(router.routes());
 app.use(router.allowedMethods());
 
-app.use(async (ctx, next) => {
-  console.log('path=', ctx.request.url.pathname);
-  if (ctx.request.url.pathname.startsWith("/public/")) {
-    console.log('pass:', ctx.request.url.pathname);
-    await send(ctx, ctx.request.url.pathname, {
-      root: Deno.cwd(),
-      index: "index.html",
-    });
-  } else {
-    await next();
+function sqlcmd(sql, arg1) {
+  console.log('sql:', sql)
+  try {
+    var results = db.query(sql, arg1)
+    console.log('sqlcmd: results=', results)
+    return results
+  } catch (error) {
+    console.log('sqlcmd error: ', error)
+    throw error
   }
-});
+}
 
-app.use(checkAuth);
-
-function query(sql, params = []) {
-  const list = [];
-  for (const [id, name, tel] of db.query(sql, params)) {
-    list.push({ id, name, tel });
+function postQuery(sql) {
+  let list = []
+  for (const [id, username, title, body] of sqlcmd(sql)) {
+    list.push({id, username, title, body})
   }
-  return list;
+  console.log('postQuery: list=', list)
+  return list
+}
+
+function userQuery(sql) {
+  let list = []
+  for (const [id, username, password, email] of sqlcmd(sql)) {
+    list.push({id, username, password, email})
+  }
+  console.log('userQuery: list=', list)
+  return list
+}
+
+async function parseFormBody(body) {
+  const pairs = await body.value
+  const obj = {}
+  for (const [key, value] of pairs) {
+    obj[key] = value
+  }
+  return obj
+}
+
+async function signupUi(ctx) {
+  ctx.response.body = await render.signupUi();
+}
+
+async function signup(ctx) {
+  const body = ctx.request.body()
+  if (body.type === "form") {
+    var user = await parseFormBody(body)
+    var dbUsers = userQuery(`SELECT id, username, password, email FROM users WHERE username='${user.username}'`)
+    if (dbUsers.length === 0) {
+      sqlcmd("INSERT INTO users (username, password, email) VALUES (?, ?, ?)", [user.username, user.password, user.email]);
+      ctx.response.body = render.success()
+    } else 
+      ctx.response.body = render.fail()
+  }
+}
+
+async function loginUi(ctx) {
+  ctx.response.body = await render.loginUi();
+}
+
+async function login(ctx) {
+  const body = ctx.request.body();
+  if (body.type === "form") {
+    const userCredentials = await parseFormBody(body);
+    const dbUsers = userQuery(`SELECT id, username, password, email FROM users WHERE username='${userCredentials.username}'`);
+    
+    if (dbUsers.length > 0) {
+      const dbUser = dbUsers[0];
+      if (dbUser.password === userCredentials.password) {
+        await ctx.state.session.set('user', { username: dbUser.username, id: dbUser.id }); // Set the user in the session
+        console.log('session.user=', await ctx.state.session.get('user'));
+        ctx.response.redirect('/');
+      } else {
+        ctx.response.body = render.fail();
+      }
+    } else {
+      ctx.response.body = render.userNotFound();
+    }
+  }
+}
+
+async function logout(ctx) {
+  await ctx.state.session.set('user', null); // Clear the user in the session
+  ctx.response.redirect('/');
 }
 
 async function list(ctx) {
-  try {
-    const posts = query("SELECT id, name, tel FROM posts");
-    const contacts = query("SELECT id, name, tel FROM contacts");
-    console.log('list:posts=', posts);
-    console.log('list:contacts=', contacts);
-    ctx.response.body = await render.list(posts, contacts);
-  } catch (error) {
-    ctx.throw(500, 'Internal Server Error');
+  const posts = postQuery("SELECT id, username, title, body FROM posts");
+  const user = await ctx.state.session.get('user');
+
+  console.log('list: user=', user);
+  console.log('list: posts=', posts);
+
+  ctx.response.body = await render.list(posts, user);
+}
+
+
+async function add(ctx) {
+  var user = await ctx.state.session.get('user')
+  if (user != null) {
+    ctx.response.body = await render.newPost();
+  } else {
+    ctx.response.body = render.fail()
   }
 }
 
-async function add(ctx) {
-  ctx.response.body = await render.newPost();
+async function search(ctx) {
+  ctx.response.body = await render.search();
 }
 
 async function show(ctx) {
-  try {
-    const pid = ctx.params.id;
-    const posts = query("SELECT id, name, tel FROM posts WHERE id=?", [pid]);
-    const post = posts[0];
-    console.log('show:post=', post);
-    if (!post) {
-      ctx.throw(404, 'Invalid post id');
-    }
-    ctx.response.body = await render.show(post);
-  } catch (error) {
-    ctx.throw(500, 'Internal Server Error');
-  }
+  const pid = ctx.params.id;
+  let posts = postQuery(`SELECT id, username, title, body FROM posts WHERE id=${pid}`)
+  let post = posts[0]
+  console.log('show:post=', post)
+  if (!post) ctx.throw(404, 'invalid post id');
+  ctx.response.body = await render.show(post);
 }
 
 async function create(ctx) {
-  const body = ctx.request.body();
+  const body = ctx.request.body()
   if (body.type === "form") {
-    try {
-      const pairs = await body.value;
-      const post = Object.fromEntries(pairs);
-      console.log('create:post=', post);
-      db.query("INSERT INTO posts (name, tel) VALUES (?, ?)", [post.name, post.tel]);
-      ctx.response.redirect('/');
-    } catch (error) {
-      ctx.throw(500, 'Internal Server Error');
+    var post = await parseFormBody(body)
+    console.log('create:post=', post)
+    var user = await ctx.state.session.get('user')
+    if (user != null) {
+      console.log('user=', user)
+      sqlcmd("INSERT INTO posts (username, title, body) VALUES (?, ?, ?)", [user.username, post.title, post.body]);  
+    } else {
+      ctx.throw(404, 'not login yet!');
     }
+    ctx.response.redirect('/');
   }
 }
 
-async function addContactForm(ctx) {
-  ctx.response.body = await render.newContact();
-}
-
-async function createContact(ctx) {
+async function find(ctx) {
   const body = ctx.request.body();
   if (body.type === "form") {
-    try {
-      const pairs = await body.value;
-      const contact = Object.fromEntries(pairs);
-      db.query("INSERT INTO contacts (name, tel) VALUES (?, ?)", [contact.name, contact.tel]);
-      ctx.response.redirect('/');
-    } catch (error) {
-      ctx.throw(500, 'Internal Server Error');
+    const pairs = await body.value;
+    const searchTerm = pairs.get('name');
+    const results = [];
+    let posts = postQuery("SELECT id, username, title, body FROM posts");
+
+    for (const post of posts) {
+      if (post.title.toLowerCase().includes(searchTerm.toLowerCase())) {
+        results.push(post);
+      }
+    }    
+
+    console.log('Search Term:', searchTerm);
+
+    if (results.length > 0) {
+      const resultHtml = results.map(post => `<h1>Name：${post.title}</h1><p>Tel：${post.body}</p>`).join('');
+      ctx.response.body = await render.found(resultHtml);
+    } else {
+      ctx.response.body = await render.not_found();
     }
+  } 
+}
+
+async function deleteConfirmation(ctx) {
+  const pid = ctx.params.id;
+  const post = postQuery(`SELECT id, username, title, body FROM posts WHERE id=${pid}`)[0];
+
+  if (!post) {
+    ctx.throw(404, 'Invalid post id');
   }
+
+  ctx.response.body = await render.deleteConfirmation(post);
 }
 
 async function deleteContact(ctx) {
-  try {
-    const cid = ctx.params.id;
-    // To check if the contact exists
-    const existingContact = query("SELECT id FROM contacts WHERE id=?", [cid]);
-    if (existingContact.length === 0) {
-      ctx.throw(404, 'Invalid contact id');
-    }
+  const pid = ctx.params.id;
+  sqlcmd("DELETE FROM posts WHERE id=?", [pid]);
 
-    // To delete the contact
-    db.query("DELETE FROM contacts WHERE id=?", [cid]);
-    ctx.response.redirect('/');
-  } catch (error) {
-    ctx.throw(500, 'Internal Server Error');
-  }
+  ctx.response.redirect('/');
 }
 
-async function searchContact(ctx) {
-  try {
-    const query = ctx.request.url.searchParams.get('q');
-    if (!query) {
-      ctx.throw(400, 'Search query is missing');
-    }
-
-    const results = queryContacts(query);
-    ctx.response.body = await render.searchResults(results);
-  } catch (error) {
-    ctx.throw(500, 'Internal Server Error');
-  }
-}
-
-async function signUpForm(ctx) {
-  ctx.response.body = await render.signUpForm();
-}
-
-async function signUp(ctx) {
-  const body = ctx.request.body();
-  if (body.type === "form") {
-    try {
-      const pairs = await body.value;
-      const user = Object.fromEntries(pairs);
-      if (users.has(user.username)) {
-        ctx.throw(400, 'Username already exists');
-      }
-      db.query("INSERT INTO users (username, password) VALUES (?, ?)", [user.username, user.password]);
-      ctx.response.redirect('/signin');
-    } catch (error) {
-      ctx.throw(500, 'Internal Server Error');
-    }
-  }
-}
-
-async function signInForm(ctx) {
-  ctx.response.body = await render.signInForm();
-}
-
-async function signIn(ctx) {
-  const body = ctx.request.body();
-  if (body.type === "form") {
-    try {
-      const pairs = await body.value;
-      const credentials = Object.fromEntries(pairs);
-      const user = users.get(credentials.username);
-
-      if (!user || user.password !== credentials.password) {
-        ctx.throw(401, 'Invalid credentials');
-      }
-      ctx.cookies.set('user', credentials.username);
-      ctx.response.redirect('/');
-    } catch (error) {
-      ctx.throw(500, 'Internal Server Error');
-    }
-  }
-}
-
-async function checkAuth(ctx, next) {
-  const user = ctx.cookies.get('user');
-  if (!user && ctx.request.url.pathname !== '/signin' && ctx.request.url.pathname !== '/signup') {
-    ctx.response.redirect('/signin');
-  } else {
-    await next();
-  }
-}
-
-const port = parseInt(Deno.args[0]) || 8001;
-console.log(`Server run at http://127.0.0.1:${port}`);
-await app.listen({ port });
+console.log('Server run at http://127.0.0.1:8000');
+await app.listen({ port: 8000 });
