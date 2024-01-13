@@ -66,7 +66,7 @@ R.list = function (posts) {
   });
 
   var content = `
-    <h1>通訊錄</h1>
+    <h1>Contact</h1>
     <p>You have <strong>${posts.length}</strong> contact${posts.length !== 1 ? 's' : ''}</p>
     <p><a id="createPost" href="#new">Create New Contact</a></p>
     <ul id="posts">${list.join('\n')}</ul>`;

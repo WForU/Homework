@@ -17,6 +17,15 @@ router
 
 app.use(router.routes());
 app.use(router.allowedMethods());
+app.use(async (ctx, next) => {
+  try {
+    await next();
+  } catch (err) {
+    console.error(err);
+    ctx.response.status = err.status || 500;
+    ctx.response.body = err.message;
+  }
+});
 
 async function pub(ctx) {
   console.log('path=', ctx.request.url.pathname);
@@ -42,15 +51,17 @@ async function show(ctx) {
 }
 
 async function create(ctx) {
-  const body = ctx.request.body(); 
-  console.log('body = ', body);
-  if (body.type === "json") {
-    const post = await body.value;
-    post.id = posts.length;
-    posts.push(post);
-    ctx.response.body = 'success';
-    console.log('create: save =>', post);
+  const { value } = ctx.request.body({ type: "json" });
+  const post = await value;
+
+  if (!post || typeof post.title !== 'string' || typeof post.body !== 'string') {
+    ctx.throw(400, 'Invalid post data');
   }
+
+  post.id = posts.length;
+  posts.push(post);
+  ctx.response.body = 'success';
+  console.log('create: save =>', post);
 }
 
 console.log('Server run at http://127.0.0.1:8001');
